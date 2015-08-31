@@ -1,0 +1,5 @@
+/.eunit/
+/.rebar/erlcinfo
+/deps/
+/ebin/
+/priv/*.so
