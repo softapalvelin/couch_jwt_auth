@@ -31,6 +31,7 @@ jwt_authentication_handler(Req) ->
   case header_value(Req, "Authorization") of
     "Bearer " ++ Token -> 
       try
+        ensure_safe_token(Token, couch_config:get("jwt_auth_blacklist")),
         token_auth_user(Req, decode(Token))
       catch
         % return generic error message (https://www.owasp.org/index.php/Authentication_Cheat_Sheet#Authentication_Responses)
@@ -39,7 +40,6 @@ jwt_authentication_handler(Req) ->
       end;
     _ -> Req
   end.
-
 
 %% @doc decode and validate JWT using CouchDB config
 -spec decode(Token :: binary()) -> list().
@@ -56,6 +56,12 @@ decode(Token, Config) ->
     _ -> validate(lists:map(fun({Key, Value}) ->
         {?b2l(Key), Value}
       end, List), posix_time(calendar:universal_time()), Config)
+  end.
+
+ensure_safe_token(Token, Config) ->
+  case couch_util:get_value(Token, Config) of
+    undefined -> true;
+    Reason -> throw(Reason)
   end.
 
 posix_time({Date,Time}) -> 
@@ -104,6 +110,7 @@ get_userinfo_from_token(User, Config) ->
 
 -define (EmptyConfig, [{"hs_secret",""}]).
 -define (BasicConfig, [{"hs_secret","c2VjcmV0"}]).
+-define (BlacklistConfig, [{"token","bad guy 1"}]).
 -define (BasicTokenInfo, [{"sub",<<"1234567890">>},{"name",<<"John Doe">>},{"admin",true}]).
 
 decode_malformed_empty_test() ->
@@ -124,6 +131,12 @@ decode_simple_test() ->
 
 decode_unsecured_test() ->
   ?assertError(function_clause, decode("eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.", ?BasicConfig)).
+
+ensure_safe_token_ok_test() ->
+  ?assertEqual(true, ensure_safe_token("good token", ?BlacklistConfig)).
+
+ensure_safe_token_unsafe_test() ->
+  ?assertThrow("bad guy 1", ensure_safe_token("token", ?BlacklistConfig)).
 
 validate_simple_test() ->
   TokenInfo = ?BasicTokenInfo,

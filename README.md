@@ -60,3 +60,13 @@ With default options you should see the JWT "sub" claim content in the CouchDB u
 ## Use cases
 
 [Auth0](https://auth0.com/) is an identity service that supports many identity providers like Google, Facebook, Twitter and so on. Auth0 generates a JWT that can be parsed by this plugin. [Here](https://github.com/softapalvelin/getting-started-todo) is a sample application that uses Auth0 to authenticate a user with CouchDB.
+
+## Blacklisting tokens
+
+If you want to blacklist tokens, just add a section to CouchDB's config named `jwt_auth_blacklist`
+and add the tokens together with a reason (for your records if you want) like this:
+
+```ini
+[jwt_auth_blacklist]
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ = bad guy one
+```
