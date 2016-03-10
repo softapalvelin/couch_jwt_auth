@@ -84,7 +84,7 @@ site is just amazing and explains the concepts really well.
   ```
 
   This means that instead of using `sub` as the `username_claim`, it uses `name` which is the field
-  that CouchDB uses in its `_users` database to tell users apart.
+  that CouchDB uses in its `_users` database to tell users apart. [This wiki page](https://github.com/softapalvelin/couch_jwt_auth/wiki/Configuration-options) contains more information about configuration options.
 
   Edit `/usr/local/etc/couchdb/local.ini` and add `couch_jwt_auth` to CouchDB's `authentication_handlers`
   `httpd` section. It's ok to have more options on that line :):
