@@ -50,11 +50,16 @@ decode(Token) ->
 % [{"hs_secret","..."},{"roles_claim","roles"},{"username_claim","sub"}]
 -spec decode(Token :: binary(), Config :: list()) -> list().
 decode(Token, Config) ->
-   JWK = #{
-    <<"kty">> => <<"oct">>,
-    <<"k">> => couch_util:get_value("hs_secret", Config) 
-   },
-   case jose_jwt:verify_strict(JWK, [<<"HS256">>], list_to_binary(Token)) of
+   {JWK, Alg} = case {couch_util:get_value("hs_secret", Config, nil), couch_util:get_value("rs_public_key", Config, nil)} of
+     {nil, nil} -> throw(no_token_secret_given);
+     {HsSecret, nil} -> {#{
+          <<"kty">> => <<"oct">>,
+          <<"k">> => HsSecret 
+        }, <<"HS256">>};
+     {nil, RsPublicKey} -> {jose_jwk:from_pem(list_to_binary(RsPublicKey)), <<"RS256">>};
+     {_, _} -> throw(hs_and_rs_configuration_conflict)
+   end,
+   case jose_jwt:verify_strict(JWK, [Alg], list_to_binary(Token)) of
      {false, _, _} -> throw(signature_not_valid);
      {true, {jose_jwt, Jwt}, _} -> validate(lists:map(fun({Key, Value}) -> 
                                                           {?b2l(Key), Value}
@@ -105,9 +110,21 @@ get_userinfo_from_token(User, Config) ->
 % UNIT TESTS
 -ifdef(TEST).
 
+-define (NilConfig, []).
 -define (EmptyConfig, [{"hs_secret",""}]).
 -define (BasicConfig, [{"hs_secret","c2VjcmV0"}]).
+-define (ConflictingConfig, [{"hs_secret","c2VjcmV0"}, {"rs_public_key", ".."}]).
 -define (BasicTokenInfo, [{"sub",<<"1234567890">>},{"name",<<"John Doe">>},{"admin",true}]).
+-define (RS256Config, [{"rs_public_key","-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDdlatRjRjogo3WojgGHFHYLugdUWAY9iR3fy4arWNA1KoS8kVw33cJibXr8bvwUAUparCwlvdbH6dvEOfou0/gCFQsHUfQrSDv+MuSUMAe8jzKE4qW+jK+xQU9a03GUnKHkkle+Q0pX/g6jXZ7r1/xAK5Do2kQ+X5xK9cipRgEKwIDAQAB
+-----END PUBLIC KEY-----"}]).
+-define (RS256TokenInfo, [{"sub",<<"1234567890">>},{"name",<<"John Doe">>},{"admin",true}]).
+
+decode_malformed_nil_test() ->
+  ?assertThrow(no_token_secret_given, decode("", ?NilConfig)).
+
+decode_conflicting_config_test() ->
+  ?assertThrow(hs_and_rs_configuration_conflict, decode("", ?ConflictingConfig)).
 
 decode_malformed_empty_test() ->
   ?assertError({badarg,_}, decode("", ?EmptyConfig)).
@@ -128,6 +145,11 @@ decode_simple_test() ->
 
 decode_unsecured_test() ->
   ?assertThrow(signature_not_valid, decode("eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.", ?BasicConfig)).
+
+decode_rs256_test() ->
+  TokenInfo = ?RS256TokenInfo,
+  %compare maps here since we don't care about the order of the keys
+  ?assertEqual(maps:from_list(TokenInfo), maps:from_list(decode("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE", ?RS256Config))).
 
 validate_simple_test() ->
   TokenInfo = ?BasicTokenInfo,
