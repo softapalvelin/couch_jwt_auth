@@ -50,13 +50,16 @@ decode(Token) ->
 % [{"hs_secret","..."},{"roles_claim","roles"},{"username_claim","sub"}]
 -spec decode(Token :: binary(), Config :: list()) -> list().
 decode(Token, Config) ->
-  Secret = base64url:decode(couch_util:get_value("hs_secret", Config)),
-  case List = ejwt:decode(list_to_binary(Token), Secret) of
-    error -> throw(signature_not_valid);
-    _ -> validate(lists:map(fun({Key, Value}) ->
-        {?b2l(Key), Value}
-      end, List), posix_time(calendar:universal_time()), Config)
-  end.
+   JWK = #{
+    <<"kty">> => <<"oct">>,
+    <<"k">> => couch_util:get_value("hs_secret", Config) 
+   },
+   case jose_jwt:verify_strict(JWK, [<<"HS256">>], list_to_binary(Token)) of
+     {false, _, _} -> throw(signature_not_valid);
+     {true, {jose_jwt, Jwt}, _} -> validate(lists:map(fun({Key, Value}) -> 
+                                                          {?b2l(Key), Value}
+                                                          end, maps:to_list(Jwt)), posix_time(calendar:universal_time()), Config)
+   end.
 
 posix_time({Date,Time}) -> 
     PosixEpoch = {{1970,1,1},{0,0,0}}, 
@@ -107,23 +110,24 @@ get_userinfo_from_token(User, Config) ->
 -define (BasicTokenInfo, [{"sub",<<"1234567890">>},{"name",<<"John Doe">>},{"admin",true}]).
 
 decode_malformed_empty_test() ->
-  ?assertError({badmatch,_}, decode("", ?EmptyConfig)).
+  ?assertError({badarg,_}, decode("", ?EmptyConfig)).
 
 decode_malformed_dots_test() ->
   ?assertError({badarg,_}, decode("...", ?EmptyConfig)).
 
 decode_malformed_nosignature1_test() ->
-  ?assertError({badmatch,_}, decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOmZhbHNlfQ", ?BasicConfig)).
+  ?assertError({badarg,_}, decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOmZhbHNlfQ", ?BasicConfig)).
 
 decode_malformed_nosignature2_test() ->
   ?assertThrow(signature_not_valid, decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOmZhbHNlfQ.", ?BasicConfig)).
 
 decode_simple_test() ->
   TokenInfo = ?BasicTokenInfo,
-  ?assertEqual(TokenInfo, decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ", ?BasicConfig)).
+  %compare maps here since we don't care about the order of the keys
+  ?assertEqual(maps:from_list(TokenInfo), maps:from_list(decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ", ?BasicConfig))).
 
 decode_unsecured_test() ->
-  ?assertError(function_clause, decode("eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.", ?BasicConfig)).
+  ?assertThrow(signature_not_valid, decode("eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.", ?BasicConfig)).
 
 validate_simple_test() ->
   TokenInfo = ?BasicTokenInfo,
