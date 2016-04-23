@@ -221,7 +221,17 @@ decode_rs256_test() ->
   %compare maps here since we don't care about the order of the keys
   ?assertEqual(maps:from_list(TokenInfo), maps:from_list(decode("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE", ?RS256Config))).
 
-validate_simple_test() ->
+decode_rs256_speed_when_loading_jwk_on_each_decoding_test_() ->
+  {timeout, 20, fun() -> lists:map(fun(_) -> 
+                {JWK, Alg} = init_jwk_from_config(?RS256Config),
+                decode("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE", JWK, Alg, ?RS256Config) end, lists:seq(1, 10000)) end}.
+
+decode_rs256_speed_when_using_gen_server_state_test_() ->
+  {timeout, 20, fun() ->
+                    init_jwk(?RS256Config),
+                    lists:map(fun(_) -> decode("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE") end, lists:seq(1, 10000)) end}.
+
+  validate_simple_test() ->
   TokenInfo = ?BasicTokenInfo,
   ?assertEqual(TokenInfo, validate(TokenInfo, 1000, ?EmptyConfig)).
 
