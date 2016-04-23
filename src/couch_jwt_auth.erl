@@ -188,6 +188,7 @@ get_userinfo_from_token(User, Config) ->
 MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDdlatRjRjogo3WojgGHFHYLugdUWAY9iR3fy4arWNA1KoS8kVw33cJibXr8bvwUAUparCwlvdbH6dvEOfou0/gCFQsHUfQrSDv+MuSUMAe8jzKE4qW+jK+xQU9a03GUnKHkkle+Q0pX/g6jXZ7r1/xAK5Do2kQ+X5xK9cipRgEKwIDAQAB
 -----END PUBLIC KEY-----"}]).
 -define (RS256TokenInfo, [{"sub",<<"1234567890">>},{"name",<<"John Doe">>},{"admin",true}]).
+-define (RS256Token, "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE").
 
 init_jwk_from_config_nil_test() ->
   ?assertThrow(no_token_secret_given, init_jwk_from_config(?NilConfig)).
@@ -219,17 +220,17 @@ decode_unsecured_test() ->
 decode_rs256_test() ->
   TokenInfo = ?RS256TokenInfo,
   %compare maps here since we don't care about the order of the keys
-  ?assertEqual(maps:from_list(TokenInfo), maps:from_list(decode("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE", ?RS256Config))).
+  ?assertEqual(maps:from_list(TokenInfo), maps:from_list(decode(?RS256Token, ?RS256Config))).
 
 decode_rs256_speed_when_loading_jwk_on_each_decoding_test_() ->
   {timeout, 20, fun() -> lists:map(fun(_) -> 
                 {JWK, Alg} = init_jwk_from_config(?RS256Config),
-                decode("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE", JWK, Alg, ?RS256Config) end, lists:seq(1, 10000)) end}.
+                decode(?RS256Token, JWK, Alg, ?RS256Config) end, lists:seq(1, 10000)) end}.
 
 decode_rs256_speed_when_using_gen_server_state_test_() ->
   {timeout, 20, fun() ->
                     init_jwk(?RS256Config),
-                    lists:map(fun(_) -> decode("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE") end, lists:seq(1, 10000)) end}.
+                    lists:map(fun(_) -> decode(?RS256Token) end, lists:seq(1, 1000)) end}.
 
   validate_simple_test() ->
   TokenInfo = ?BasicTokenInfo,
