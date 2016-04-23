@@ -13,6 +13,11 @@
 %   limitations under the License.
 
 -module(couch_jwt_auth).
+-behaviour(gen_server).
+
+-export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
+
 -export([jwt_authentication_handler/1]).
 -export([decode/1]).
 
@@ -40,16 +45,53 @@ jwt_authentication_handler(Req) ->
     _ -> Req
   end.
 
+start_link(Config) ->
+  gen_server:start_link({local, ?MODULE}, ?MODULE, Config, []).
 
-%% @doc decode and validate JWT using CouchDB config
--spec decode(Token :: binary()) -> list().
-decode(Token) ->
-  decode(Token, couch_config:get("jwt_auth")).
+start_link() ->
+   Config = couch_config:get("jwt_auth"),
+   start_link(Config).
 
-% Config is list of key value pairs:
-% [{"hs_secret","..."},{"roles_claim","roles"},{"username_claim","sub"}]
--spec decode(Token :: binary(), Config :: list()) -> list().
-decode(Token, Config) ->
+init([]) ->
+{ok, {invalid_jwk, empty_initialization}};
+
+init(Config) ->
+   try init_jwk_from_config(Config) of 
+     {JWK, Alg} -> {ok, {valid_jwk, JWK, Alg, Config}}
+   catch
+      _:Error -> {ok, {invalid_jwk, Error}}
+   end.
+
+handle_call({decode, Token}, _From, State) ->
+  case State of 
+    {valid_jwk, JWK, Alg, Config} -> 
+      try decode(Token, JWK, Alg, Config) of
+        TokenList -> {reply, {ok, TokenList}, State}
+      catch
+        _:Error -> {reply, {error, Error}, State}
+      end;
+    {invalid_jwk, _, _, _} -> {reply, {error, no_jwk_initialized}, State}
+  end;
+
+handle_call({init_jwk, Config}, _From, State) ->
+   try init_jwk_from_config(Config) of 
+     {JWK, Alg} -> {reply, {ok}, {valid_jwk, JWK, Alg, Config}}
+   catch
+      _:Error -> {reply, {error, Error}, State}
+   end.
+
+handle_cast(stop, State) ->
+    {stop, normal, State};
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+handle_info(_Msg, State) ->
+    {noreply, State}.
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+terminate(_Reason, _State) ->
+    ok.
+
+init_jwk_from_config(Config) ->
    {JWK, Alg} = case {couch_util:get_value("hs_secret", Config, nil), couch_util:get_value("rs_public_key", Config, nil)} of
      {nil, nil} -> throw(no_token_secret_given);
      {HsSecret, nil} -> {#{
@@ -59,12 +101,37 @@ decode(Token, Config) ->
      {nil, RsPublicKey} -> {jose_jwk:from_pem(list_to_binary(RsPublicKey)), <<"RS256">>};
      {_, _} -> throw(hs_and_rs_configuration_conflict)
    end,
+ {JWK, Alg}.
+
+decode(Token, JWK, Alg, Config) ->
    case jose_jwt:verify_strict(JWK, [Alg], list_to_binary(Token)) of
      {false, _, _} -> throw(signature_not_valid);
      {true, {jose_jwt, Jwt}, _} -> validate(lists:map(fun({Key, Value}) -> 
                                                           {?b2l(Key), Value}
                                                           end, maps:to_list(Jwt)), posix_time(calendar:universal_time()), Config)
    end.
+
+%% @doc decode and validate JWT using CouchDB config
+-spec decode(Token :: binary()) -> list().
+decode(Token) ->
+  %decode(Token, couch_config:get("jwt_auth")).
+  case gen_server:call(?MODULE, {decode, Token}) of
+    {ok, TokenList} -> TokenList;
+    {error, Error} -> throw(Error)
+  end.
+
+init_jwk(Config) ->
+  case gen_server:call(?MODULE, {init_jwk, Config}) of
+    {ok} -> ok;
+    {error, Error} -> throw(Error)
+  end.
+
+% Config is list of key value pairs:
+% [{"hs_secret","..."},{"roles_claim","roles"},{"username_claim","sub"}]
+-spec decode(Token :: binary(), Config :: list()) -> list().
+decode(Token, Config) ->
+  init_jwk(Config),
+  decode(Token).
 
 posix_time({Date,Time}) -> 
     PosixEpoch = {{1970,1,1},{0,0,0}}, 
@@ -107,6 +174,8 @@ get_userinfo_from_token(User, Config) ->
   Roles = couch_util:get_value(couch_util:get_value("roles_claim", Config, "roles"), User, []),
   {UserName, Roles}.
 
+
+
 % UNIT TESTS
 -ifdef(TEST).
 
@@ -120,20 +189,21 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDdlatRjRjogo3WojgGHFHYLugdUWAY9iR3fy4arWNA
 -----END PUBLIC KEY-----"}]).
 -define (RS256TokenInfo, [{"sub",<<"1234567890">>},{"name",<<"John Doe">>},{"admin",true}]).
 
-decode_malformed_nil_test() ->
-  ?assertThrow(no_token_secret_given, decode("", ?NilConfig)).
+init_jwk_from_config_nil_test() ->
+  ?assertThrow(no_token_secret_given, init_jwk_from_config(?NilConfig)).
 
-decode_conflicting_config_test() ->
-  ?assertThrow(hs_and_rs_configuration_conflict, decode("", ?ConflictingConfig)).
+init_jwk_conflicting_config_test() ->
+  ?assertThrow(hs_and_rs_configuration_conflict, init_jwk_from_config(?ConflictingConfig)).
 
 decode_malformed_empty_test() ->
-  ?assertError({badarg,_}, decode("", ?EmptyConfig)).
+  start_link(?EmptyConfig),
+  ?assertThrow({badarg,_}, decode("", ?EmptyConfig)).
 
 decode_malformed_dots_test() ->
-  ?assertError({badarg,_}, decode("...", ?EmptyConfig)).
+  ?assertThrow({badarg,_}, decode("...", ?EmptyConfig)).
 
 decode_malformed_nosignature1_test() ->
-  ?assertError({badarg,_}, decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOmZhbHNlfQ", ?BasicConfig)).
+  ?assertThrow({badarg,_}, decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOmZhbHNlfQ", ?BasicConfig)).
 
 decode_malformed_nosignature2_test() ->
   ?assertThrow(signature_not_valid, decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOmZhbHNlfQ.", ?BasicConfig)).
