@@ -62,16 +62,8 @@ init(Config) ->
       _:Error -> {ok, {invalid_jwk, Error}}
    end.
 
-handle_call({decode, Token}, _From, State) ->
-  case State of 
-    {valid_jwk, JWK, Alg, Config} -> 
-      try decode(Token, JWK, Alg, Config) of
-        TokenList -> {reply, {ok, TokenList}, State}
-      catch
-        _:Error -> {reply, {error, Error}, State}
-      end;
-    {invalid_jwk, _, _, _} -> {reply, {error, no_jwk_initialized}, State}
-  end;
+handle_call({get_jwk}, _From, State) ->
+  {reply, State, State};
 
 handle_call({init_jwk, Config}, _From, State) ->
    try init_jwk_from_config(Config) of 
@@ -114,10 +106,14 @@ decode(Token, JWK, Alg, Config) ->
 %% @doc decode and validate JWT using CouchDB config
 -spec decode(Token :: binary()) -> list().
 decode(Token) ->
-  %decode(Token, couch_config:get("jwt_auth")).
-  case gen_server:call(?MODULE, {decode, Token}) of
-    {ok, TokenList} -> TokenList;
-    {error, Error} -> throw(Error)
+  case gen_server:call(?MODULE, {get_jwk}) of
+    {valid_jwk, JWK, Alg, Config} ->
+      try decode(Token, JWK, Alg, Config) of
+        TokenList -> TokenList 
+      catch
+        _:Error -> throw(Error) 
+      end;
+    {invalid_jwk, Error} -> throw(Error)
   end.
 
 init_jwk(Config) ->
@@ -222,17 +218,32 @@ decode_rs256_test() ->
   %compare maps here since we don't care about the order of the keys
   ?assertEqual(maps:from_list(TokenInfo), maps:from_list(decode(?RS256Token, ?RS256Config))).
 
-decode_rs256_speed_when_loading_jwk_on_each_decoding_test_() ->
-  {timeout, 20, fun() -> lists:map(fun(_) -> 
+decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler() -> 
+  lists:map(fun(_) -> 
                 {JWK, Alg} = init_jwk_from_config(?RS256Config),
-                decode(?RS256Token, JWK, Alg, ?RS256Config) end, lists:seq(1, 10000)) end}.
+                decode(?RS256Token, JWK, Alg, ?RS256Config) end, lists:seq(1, 10000)).
+
+decode_rs256_speed_when_loading_jwk_on_each_decoding_test_() ->
+  {timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0}.
+
+decode_rs256_speed_when_loading_jwk_on_each_decoding_parallel_test_() ->
+  {inparallel, [{timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0}, 
+                {timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0},
+                {timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0}]}.
+
+decode_rs256_speed_when_using_gen_server_state_test_handler() ->
+  init_jwk(?RS256Config),
+  lists:map(fun(_) -> decode(?RS256Token) end, lists:seq(1, 10000)).
 
 decode_rs256_speed_when_using_gen_server_state_test_() ->
-  {timeout, 20, fun() ->
-                    init_jwk(?RS256Config),
-                    lists:map(fun(_) -> decode(?RS256Token) end, lists:seq(1, 1000)) end}.
+  {timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}.
 
-  validate_simple_test() ->
+decode_rs256_speed_when_using_gen_server_state_parallel_test_() ->
+  {inparallel, [{timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}, 
+                {timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}, 
+                {timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}]}.
+
+validate_simple_test() ->
   TokenInfo = ?BasicTokenInfo,
   ?assertEqual(TokenInfo, validate(TokenInfo, 1000, ?EmptyConfig)).
 
