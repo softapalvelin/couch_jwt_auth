@@ -20,6 +20,7 @@
 
 -export([jwt_authentication_handler/1]).
 -export([decode/1]).
+-export([decode/2]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
