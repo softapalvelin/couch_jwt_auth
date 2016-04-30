@@ -1,7 +1,7 @@
 -module(couch_jwt_auth_tests).
 -include_lib("eunit/include/eunit.hrl").
 
--import(couch_jwt_auth, [start_link/1, decode/1, decode/2, decode/4, validate/3]).
+-import(couch_jwt_auth, [start_link/1, stop/0, decode/1, decode/2, decode/4, validate/3]).
 -import(couch_jwt_auth, [init_jwk_from_config/1, init_jwk/1]).
 -import(couch_jwt_auth, [posix_time/1, get_userinfo_from_token/2]).
 
@@ -10,6 +10,11 @@
 -define (BasicConfig, [{"hs_secret","c2VjcmV0"}]).
 -define (ConflictingConfig, [{"hs_secret","c2VjcmV0"}, {"rs_public_key", ".."}]).
 -define (BasicTokenInfo, [{"sub",<<"1234567890">>},{"name",<<"John Doe">>},{"admin",true}]).
+-define (SimpleToken, "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ").
+-define (NoSignatureToken,  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOmZhbHNlfQ").
+-define (NoSignatureToken2, "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOmZhbHNlfQ.").
+-define (UnsecuredToken, "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.").
+
 -define (RS256Config, [{"rs_public_key","-----BEGIN PUBLIC KEY-----
 MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDdlatRjRjogo3WojgGHFHYLugdUWAY9iR3fy4arWNA1KoS8kVw33cJibXr8bvwUAUparCwlvdbH6dvEOfou0/gCFQsHUfQrSDv+MuSUMAe8jzKE4qW+jK+xQU9a03GUnKHkkle+Q0pX/g6jXZ7r1/xAK5Do2kQ+X5xK9cipRgEKwIDAQAB
 -----END PUBLIC KEY-----"}]).
@@ -22,56 +27,56 @@ init_jwk_from_config_nil_test() ->
 init_jwk_conflicting_config_test() ->
   ?assertThrow(hs_and_rs_configuration_conflict, init_jwk_from_config(?ConflictingConfig)).
 
-decode_malformed_empty_test() ->
-  start_link(?EmptyConfig),
-  ?assertThrow({badarg,_}, decode("", ?EmptyConfig)).
+decoding_using_gen_server_test_() ->
+    {foreach, fun setup/0, fun cleanup/1, [
+        {"decode malformed token, only dots", fun() -> ?assertThrow({badarg,_}, decode("...", ?EmptyConfig)) end},
+        
+        {"decode malformed token, no signature", fun() -> ?assertThrow({badarg,_}, decode(?NoSignatureToken, ?BasicConfig)) end},
+        
+        {"decode malformed token, no signature 2", fun() -> ?assertThrow(signature_not_valid, decode(?NoSignatureToken2, ?BasicConfig)) end},
+        
+        %compare maps here since we don't care about the order of the keys
+        {"decode simple", fun () -> ?assertEqual(maps:from_list(?BasicTokenInfo), maps:from_list(decode(?SimpleToken, ?BasicConfig))) end},
+        
+        {"decode unsecured", fun () -> ?assertThrow(signature_not_valid, decode(?UnsecuredToken, ?BasicConfig)) end},
+        
+        %compare maps here since we don't care about the order of the keys
+        {"decode rs256", fun () -> ?assertEqual(maps:from_list(?RS256TokenInfo), maps:from_list(decode(?RS256Token, ?RS256Config))) end},
+        
+        {"decode rs256 test speed when using loading jwk on each decoding", 
+         {timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0}},
 
-decode_malformed_dots_test() ->
-  ?assertThrow({badarg,_}, decode("...", ?EmptyConfig)).
+        {"decode rs256 test speed when using loading jwk on each decoding and running in parallel", 
+         {inparallel, [{timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0}, 
+                       {timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0},
+                       {timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0}]}},
+        
+        {"decode rs256 test speed when using gen_server state", 
+         {timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}},
+        
+        {"decode rs256 test speed when using gen server state and running in parallel", 
+         {inparallel, [{timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}, 
+                       {timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}, 
+                       {timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}]}}
+    ]}.
 
-decode_malformed_nosignature1_test() ->
-  ?assertThrow({badarg,_}, decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOmZhbHNlfQ", ?BasicConfig)).
+setup() ->
+  {ok, Pid} = start_link(?EmptyConfig),
+  Pid.
 
-decode_malformed_nosignature2_test() ->
-  ?assertThrow(signature_not_valid, decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOmZhbHNlfQ.", ?BasicConfig)).
-
-decode_simple_test() ->
-  TokenInfo = ?BasicTokenInfo,
-  %compare maps here since we don't care about the order of the keys
-  ?assertEqual(maps:from_list(TokenInfo), maps:from_list(decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ", ?BasicConfig))).
-
-decode_unsecured_test() ->
-  ?assertThrow(signature_not_valid, decode("eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.", ?BasicConfig)).
-
-decode_rs256_test() ->
-  TokenInfo = ?RS256TokenInfo,
-  %compare maps here since we don't care about the order of the keys
-  ?assertEqual(maps:from_list(TokenInfo), maps:from_list(decode(?RS256Token, ?RS256Config))).
+cleanup(_) ->
+  stop().
 
 decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler() -> 
   lists:map(fun(_) -> 
                 {JWK, Alg} = init_jwk_from_config(?RS256Config),
                 decode(?RS256Token, JWK, Alg, ?RS256Config) end, lists:seq(1, 10000)).
 
-decode_rs256_speed_when_loading_jwk_on_each_decoding_test_() ->
-  {timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0}.
-
-decode_rs256_speed_when_loading_jwk_on_each_decoding_parallel_test_() ->
-  {inparallel, [{timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0}, 
-                {timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0},
-                {timeout, 20, fun decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler/0}]}.
-
 decode_rs256_speed_when_using_gen_server_state_test_handler() ->
   init_jwk(?RS256Config),
   lists:map(fun(_) -> decode(?RS256Token) end, lists:seq(1, 10000)).
 
-decode_rs256_speed_when_using_gen_server_state_test_() ->
-  {timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}.
 
-decode_rs256_speed_when_using_gen_server_state_parallel_test_() ->
-  {inparallel, [{timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}, 
-                {timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}, 
-                {timeout, 20, fun decode_rs256_speed_when_using_gen_server_state_test_handler/0}]}.
 
 validate_simple_test() ->
   TokenInfo = ?BasicTokenInfo,

@@ -15,7 +15,7 @@
 -module(couch_jwt_auth).
 -behaviour(gen_server).
 
--export([start_link/0, start_link/1, init/1, handle_call/3, handle_cast/2, handle_info/2,
+-export([start_link/0, start_link/1, stop/0, init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
 -export([jwt_authentication_handler/1]).
@@ -74,10 +74,11 @@ handle_call({init_jwk, Config}, _From, State) ->
      {JWK, Alg} -> {reply, {ok}, {valid_jwk, JWK, Alg, Config}}
    catch
       _:Error -> {reply, {error, Error}, State}
-   end.
+   end;
 
-handle_cast(stop, State) ->
-    {stop, normal, State};
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State}.
+
 handle_cast(_Msg, State) ->
     {noreply, State}.
 handle_info(_Msg, State) ->
@@ -125,6 +126,9 @@ init_jwk(Config) ->
     {ok} -> ok;
     {error, Error} -> throw(Error)
   end.
+
+stop() ->
+  gen_server:call(?MODULE, stop).
 
 % Config is list of key value pairs:
 % [{"hs_secret","..."},{"roles_claim","roles"},{"username_claim","sub"}]
