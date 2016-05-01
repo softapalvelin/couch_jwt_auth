@@ -22,33 +22,32 @@ Qx51AhEAz6VUgN0H5+1xwyOBtq/YEQIRANO6cLLvOFBNNaG9igT3ma0CEQClL7lR
 6oRnlRVzT8PZOXqBAhEAssLyiaIABERKr2aGrKyE9A==
 -----END RSA PRIVATE KEY-----").
 
-load_jwk_from_config_test_() ->
-    {foreach, fun setup/0, fun cleanup/1, [
-      {"should load jwk from link in openid configuration", fun() ->
-                                                               PrivateJwk = jose_jwk:from_pem(list_to_binary(?PrivateRSAKey)),
-                                                               {_, JwkJson} = jose_jwk:to_binary(PrivateJwk),
-                                                               
-                                                               meck:new(httpc),
-                                                               meck:expect(httpc, request, [{["http://localhost/.well-known/openid-configuration"],
-                                                                                                {ok, { {"Version",200, "Reason"}, [], "{'jwks_uri': 'http://localhost/jwks'}"}}},
-                                                                                               {["http://localhost/jwks"],
-                                                                                                {ok, { {"Version",200, "Reason"}, [], binary_to_list(JwkJson)}}}
-                                                                                              ]), 
-                                                               try
-                                                                JwkLoaded = load_jwk_from_config_url("http://localhost/.well-known/openid-configuration"),
-                                                                ?assertEqual(PrivateJwk, JwkLoaded)
-                                                               after
-                                                                 meck:validate(httpc),
-                                                                 meck:unload(httpc) 
-                                                               end
-                                                           end} 
-    ]}.
+%don't use test generator pattern here, otherwise we run into a funny meck issue
+%when trying to mock openid_connect_configuration module lateron:
+%https://github.com/eproxus/meck/issues/133
+load_jwk_from_config_test() ->
+  PrivateJwk = jose_jwk:from_pem(list_to_binary(?PrivateRSAKey)),
+  {_, JwkJson} = jose_jwk:to_binary(PrivateJwk),
 
-setup() ->
-  {ok, _} = application:ensure_all_started(inets),
-  {ok, _} = application:ensure_all_started(ssl).
+  meck:new(httpc),
+  meck:expect(httpc, request, [{["http://localhost/.well-known/openid-configuration"],
+                                {ok, { {"Version",200, "Reason"}, [], "{'jwks_uri': 'http://localhost/jwks'}"}}},
+                               {["http://localhost/jwks"],
+                                {ok, { {"Version",200, "Reason"}, [], binary_to_list(JwkJson)}}}
+                              ]), 
+  try
+    JwkLoaded = load_jwk_from_config_url("http://localhost/.well-known/openid-configuration"),
+    ?assertEqual(PrivateJwk, JwkLoaded)
+  after
+    meck:validate(httpc),
+    meck:unload(httpc) 
+  end.
 
-cleanup(_) ->
-  ok.
+%setup() ->
+%  {ok, _} = application:ensure_all_started(inets),
+%  {ok, _} = application:ensure_all_started(ssl).
+
+%cleanup(_) ->
+%  ok.
 
 -endif.

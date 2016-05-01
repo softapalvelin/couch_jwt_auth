@@ -89,14 +89,18 @@ terminate(_Reason, _State) ->
     ok.
 
 init_jwk_from_config(Config) ->
-   {JWK, Alg} = case {couch_util:get_value("hs_secret", Config, nil), couch_util:get_value("rs_public_key", Config, nil)} of
-     {nil, nil} -> throw(no_token_secret_given);
-     {HsSecret, nil} -> {#{
+   {JWK, Alg} = case {couch_util:get_value("hs_secret", Config, nil), couch_util:get_value("rs_public_key", Config, nil), couch_util:get_value("openid_authority", Config, nil)} of
+     {nil, nil, nil} -> throw(no_token_secret_given);
+     {HsSecret, nil, nil} -> {#{
           <<"kty">> => <<"oct">>,
           <<"k">> => HsSecret 
         }, <<"HS256">>};
-     {nil, RsPublicKey} -> {jose_jwk:from_pem(list_to_binary(RsPublicKey)), <<"RS256">>};
-     {_, _} -> throw(hs_and_rs_configuration_conflict)
+     {nil, RsPublicKey, nil} -> {jose_jwk:from_pem(list_to_binary(RsPublicKey)), <<"RS256">>};
+     {nil, nil, OpenIdAuthority} -> 
+                    ConfigUri = OpenIdAuthority ++ ".well-known/openid-configuration",
+                    ?LOG_INFO("Loading public key from  ~s", [ConfigUri]),
+                    {openid_connect_configuration:load_jwk_from_config_url(ConfigUri), <<"RS256">>};
+     {_, _, _} -> throw(token_provider_configuration_conflict)
    end,
  {JWK, Alg}.
 

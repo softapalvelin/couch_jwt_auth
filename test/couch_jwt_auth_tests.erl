@@ -21,14 +21,34 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDdlatRjRjogo3WojgGHFHYLugdUWAY9iR3fy4arWNA
 -define (RS256TokenInfo, [{"sub",<<"1234567890">>},{"name",<<"John Doe">>},{"admin",true}]).
 -define (RS256Token, "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE").
 
+-define (OpenIdConfig, [{"openid_authority","http://localhost/"}]).
+-define (PrivateRSAKey, "-----BEGIN RSA PRIVATE KEY-----
+MIICWwIBAAKBgQDdlatRjRjogo3WojgGHFHYLugdUWAY9iR3fy4arWNA1KoS8kVw33cJibXr8bvwUAUparCwlvdbH6dvEOfou0/gCFQsHUfQrSDv+MuSUMAe8jzKE4qW+jK+xQU9a03GUnKHkkle+Q0pX/g6jXZ7r1/xAK5Do2kQ+X5xK9cipRgEKwIDAQABAoGAD+onAtVye4ic7VR7V50DF9bOnwRwNXrARcDhq9LWNRrRGElESYYTQ6EbatXS3MCyjjX2eMhu/aF5YhXBwkppwxg+EOmXeh+MzL7Zh284OuPbkglAaGhV9bb6/5CpuGb1esyPbYW+Ty2PC0GSZfIXkXs76jXAu9TOBvD0ybc2YlkCQQDywg2R/7t3Q2OE2+yo382CLJdrlSLVROWKwb4tb2PjhY4XAwV8d1vy0RenxTB+K5Mu57uVSTHtrMK0GAtFr833AkEA6avx20OHo61Yela/4k5kQDtjEf1N0LfI+BcWZtxsS3jDM3i1Hp0KSu5rsCPb8acJo5RO26gGVrfAsDcIXKC+bQJAZZ2XIpsitLyPpuiMOvBbzPavd4gY6Z8KWrfYzJoI/Q9FuBo6rKwl4BFoToD7WIUS+hpkagwWiz+6zLoX1dbOZwJACmH5fSSjAkLRi54PKJ8TFUeOP15h9sQzydI8zJU+upvDEKZsZc/UhT/SySDOxQ4G/523Y0sz/OZtSWcol/UMgQJALesy++GdvoIDLfJX5GBQpuFgFenRiRDabxrE9MNUZ2aPFaFp+DyAe+b4nDwuJaW2LURbr8AEZga7oQj0uYxcYw==
+-----END RSA PRIVATE KEY-----").
+-define (TokenForPrivateRSAKey, "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE").
+
 init_jwk_from_config_nil_test() ->
   ?assertThrow(no_token_secret_given, init_jwk_from_config(?NilConfig)).
 
 init_jwk_conflicting_config_test() ->
-  ?assertThrow(hs_and_rs_configuration_conflict, init_jwk_from_config(?ConflictingConfig)).
+  ?assertThrow(token_provider_configuration_conflict, init_jwk_from_config(?ConflictingConfig)).
 
 decoding_using_gen_server_test_() ->
     {foreach, fun setup/0, fun cleanup/1, [
+        {"load public key from openid configuration url", fun() ->
+                                                              PublicKey = jose_jwk:to_public(jose_jwk:from_pem(list_to_binary(?PrivateRSAKey))),
+                                                              meck:new(openid_connect_configuration, [no_link]),
+                                                              meck:expect(openid_connect_configuration, 
+                                                                          load_jwk_from_config_url, [{ ["http://localhost/.well-known/openid-configuration"], PublicKey}]),
+                                                              try
+                                                                init_jwk(?OpenIdConfig),
+                                                                decode(?TokenForPrivateRSAKey)
+                                                              after
+                                                                 meck:validate(openid_connect_configuration),
+                                                                 meck:unload(openid_connect_configuration) 
+                                                              end
+                                                            end},
+
         {"decode malformed token, only dots", fun() -> ?assertThrow({badarg,_}, decode("...", ?EmptyConfig)) end},
         
         {"decode malformed token, no signature", fun() -> ?assertThrow({badarg,_}, decode(?NoSignatureToken, ?BasicConfig)) end},
@@ -75,7 +95,6 @@ decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler() ->
 decode_rs256_speed_when_using_gen_server_state_test_handler() ->
   init_jwk(?RS256Config),
   lists:map(fun(_) -> decode(?RS256Token) end, lists:seq(1, 10000)).
-
 
 
 validate_simple_test() ->
