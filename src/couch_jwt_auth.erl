@@ -108,11 +108,11 @@ init_jwk_from_config(Config) ->
                    OpenIdAuthority -> 
                      ConfigUri = OpenIdAuthority ++ ".well-known/openid-configuration",
                      ?LOG_INFO("Loading public key from  ~s", [ConfigUri]),
-                     Key = openid_connect_configuration:load_jwk_from_config_url(ConfigUri),
-                     case Key of
-                       {jose_jwk, _, _, #{<<"kid">> := Kid}} -> #{Kid => Key};
-                       {jose_jwk, _, _, _} -> #{default => Key}
-                     end
+                     KeySet = openid_connect_configuration:load_jwk_set_from_config_url(ConfigUri),
+                     maps:from_list(lists:map(fun(Key) ->  case Key of
+                       {jose_jwk, _, _, #{<<"kid">> := Kid}} -> {Kid, Key};
+                       {jose_jwk, _, _, _} -> {default, Key}
+                     end end, KeySet))
                  end,
   
   #{hs256 => HsKeys, rs256 => maps:merge(RsPEMKey, RSOpenIdKeys)}.

@@ -30,10 +30,10 @@ MIICWwIBAAKBgQDdlatRjRjogo3WojgGHFHYLugdUWAY9iR3fy4arWNA1KoS8kVw33cJibXr8bvwUAUp
 decoding_using_gen_server_test_() ->
     {foreach, fun setup/0, fun cleanup/1, [
         {"load public key from openid configuration url", fun() ->
-                                                              PublicKey = jose_jwk:to_public(jose_jwk:from_pem(list_to_binary(?PrivateRSAKey))),
+                                                              PublicKey = [jose_jwk:to_public(jose_jwk:from_pem(list_to_binary(?PrivateRSAKey)))],
                                                               meck:new(openid_connect_configuration, [no_link]),
                                                               meck:expect(openid_connect_configuration, 
-                                                                          load_jwk_from_config_url, [{ ["http://localhost/.well-known/openid-configuration"], PublicKey}]),
+                                                                          load_jwk_set_from_config_url, [{ ["http://localhost/.well-known/openid-configuration"], PublicKey}]),
                                                               try
                                                                 init_jwk(?OpenIdConfig),
                                                                 decode(?TokenForPrivateRSAKey)
