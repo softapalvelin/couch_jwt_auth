@@ -27,12 +27,6 @@ MIICWwIBAAKBgQDdlatRjRjogo3WojgGHFHYLugdUWAY9iR3fy4arWNA1KoS8kVw33cJibXr8bvwUAUp
 -----END RSA PRIVATE KEY-----").
 -define (TokenForPrivateRSAKey, "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE").
 
-init_jwk_from_config_nil_test() ->
-  ?assertThrow(no_token_secret_given, init_jwk_from_config(?NilConfig)).
-
-init_jwk_conflicting_config_test() ->
-  ?assertThrow(token_provider_configuration_conflict, init_jwk_from_config(?ConflictingConfig)).
-
 decoding_using_gen_server_test_() ->
     {foreach, fun setup/0, fun cleanup/1, [
         {"load public key from openid configuration url", fun() ->
@@ -89,8 +83,8 @@ cleanup(_) ->
 
 decode_rs256_speed_when_loading_jwk_on_each_decoding_test_handler() -> 
   lists:map(fun(_) -> 
-                {JWK, Alg} = init_jwk_from_config(?RS256Config),
-                decode(?RS256Token, JWK, Alg, ?RS256Config) end, lists:seq(1, 10000)).
+                #{rs256 := #{default := JWK}} = init_jwk_from_config(?RS256Config),
+                decode(?RS256Token, JWK, <<"RS256">>, ?RS256Config) end, lists:seq(1, 10000)).
 
 decode_rs256_speed_when_using_gen_server_state_test_handler() ->
   init_jwk(?RS256Config),

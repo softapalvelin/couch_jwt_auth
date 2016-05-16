@@ -61,7 +61,7 @@ init([]) ->
 
 init(Config) ->
    try init_jwk_from_config(Config) of 
-     {JWK, Alg} -> {ok, {valid_jwk, JWK, Alg, Config}}
+     JwkSet -> {ok, {valid_jwk, JwkSet, Config}}
    catch
       _:Error -> {ok, {invalid_jwk, Error}}
    end.
@@ -71,7 +71,7 @@ handle_call({get_jwk}, _From, State) ->
 
 handle_call({init_jwk, Config}, _From, State) ->
    try init_jwk_from_config(Config) of 
-     {JWK, Alg} -> {reply, {ok}, {valid_jwk, JWK, Alg, Config}}
+     JwkSet -> {reply, {ok}, {valid_jwk, JwkSet, Config}}
    catch
       _:Error -> {reply, {error, Error}, State}
    end;
@@ -89,20 +89,33 @@ terminate(_Reason, _State) ->
     ok.
 
 init_jwk_from_config(Config) ->
-   {JWK, Alg} = case {couch_util:get_value("hs_secret", Config, nil), couch_util:get_value("rs_public_key", Config, nil), couch_util:get_value("openid_authority", Config, nil)} of
-     {nil, nil, nil} -> throw(no_token_secret_given);
-     {HsSecret, nil, nil} -> {#{
-          <<"kty">> => <<"oct">>,
-          <<"k">> => HsSecret 
-        }, <<"HS256">>};
-     {nil, RsPublicKey, nil} -> {jose_jwk:from_pem(list_to_binary(RsPublicKey)), <<"RS256">>};
-     {nil, nil, OpenIdAuthority} -> 
-                    ConfigUri = OpenIdAuthority ++ ".well-known/openid-configuration",
-                    ?LOG_INFO("Loading public key from  ~s", [ConfigUri]),
-                    {openid_connect_configuration:load_jwk_from_config_url(ConfigUri), <<"RS256">>};
-     {_, _, _} -> throw(token_provider_configuration_conflict)
-   end,
- {JWK, Alg}.
+  HsKeys = case couch_util:get_value("hs_secret", Config, nil) of
+             nil -> #{};
+             HsSecret -> #{default => 
+                           #{
+                               <<"kty">> => <<"oct">>,
+                               <<"k">> => HsSecret 
+                              }}
+           end,
+
+  RsPEMKey = case couch_util:get_value("rs_public_key", Config, nil) of
+               nil -> #{};
+               RsPublicKey -> #{default => jose_jwk:from_pem(list_to_binary(RsPublicKey))}
+             end,
+
+  RSOpenIdKeys = case couch_util:get_value("openid_authority", Config, nil) of 
+                   nil -> #{};
+                   OpenIdAuthority -> 
+                     ConfigUri = OpenIdAuthority ++ ".well-known/openid-configuration",
+                     ?LOG_INFO("Loading public key from  ~s", [ConfigUri]),
+                     Key = openid_connect_configuration:load_jwk_from_config_url(ConfigUri),
+                     case Key of
+                       {jose_jwk, _, _, #{<<"kid">> := Kid}} -> #{Kid => Key};
+                       {jose_jwk, _, _, _} -> #{default => Key}
+                     end
+                 end,
+  
+  #{hs256 => HsKeys, rs256 => maps:merge(RsPEMKey, RSOpenIdKeys)}.
 
 decode(Token, JWK, Alg, Config) ->
    case jose_jwt:verify_strict(JWK, [Alg], list_to_binary(Token)) of
@@ -115,14 +128,31 @@ decode(Token, JWK, Alg, Config) ->
 %% @doc decode and validate JWT using CouchDB config
 -spec decode(Token :: binary()) -> list().
 decode(Token) ->
-  case gen_server:call(?MODULE, {get_jwk}) of
-    {valid_jwk, JWK, Alg, Config} ->
-      try decode(Token, JWK, Alg, Config) of
-        TokenList -> TokenList 
-      catch
-        _:Error -> throw(Error) 
+  try jose_jwt:peek_protected(list_to_binary(Token)) of
+    TokenProtected -> case TokenProtected of
+                        {jose_jws, {jose_jws_alg_hmac, {jose_jws_alg_hmac, sha256}}, _, #{<<"kid">> := Kid}} -> decode(Token, hs256, Kid);
+                        {jose_jws, {jose_jws_alg_hmac, {jose_jws_alg_hmac, sha256}}, _, _} -> decode(Token, hs256, default);
+                        {jose_jws, {jose_jws_alg_rsa_pkcs1_v1_5, {jose_jws_alg_rsa_pkcs1_v1_5, sha256}}, _, #{<<"kid">> := Kid}} -> decode(Token, rs256, Kid); 
+                        {jose_jws, {jose_jws_alg_rsa_pkcs1_v1_5, {jose_jws_alg_rsa_pkcs1_v1_5, sha256}}, _, _} -> decode(Token, rs256, default);
+                        _ -> throw(signature_not_valid)
+                      end
+  catch
+    _:Error -> throw(Error)
+  end.
+
+decode(Token, Alg, Kid) ->
+  case {Alg, gen_server:call(?MODULE, {get_jwk})} of
+    {hs256, {valid_jwk, JwkSet, Config}} ->
+      case maps:find(Kid, maps:get(Alg, JwkSet)) of
+        {ok, Jwk} ->decode(Token, Jwk, <<"HS256">>, Config);
+        error -> throw(key_not_found) %no way of getting a new key on HS256
       end;
-    {invalid_jwk, Error} -> throw(Error)
+    {rs256, {valid_jwk, JwkSet, Config}} ->
+      case maps:find(Kid, maps:get(Alg, JwkSet)) of
+        {ok, Jwk} ->decode(Token, Jwk, <<"RS256">>, Config);
+        error -> throw(key_not_found) %if kid is unknown where going to reload the jwk set from openid_authority again
+      end;
+    {_, {invalid_jwk, Error}} -> throw(Error)
   end.
 
 init_jwk(Config) ->
