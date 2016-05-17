@@ -27,6 +27,24 @@ MIICWwIBAAKBgQDdlatRjRjogo3WojgGHFHYLugdUWAY9iR3fy4arWNA1KoS8kVw33cJibXr8bvwUAUp
 -----END RSA PRIVATE KEY-----").
 -define (TokenForPrivateRSAKey, "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE").
 
+-define (PrivateRSAKey2, "-----BEGIN RSA PRIVATE KEY-----
+MIICWwIBAAKBgQCqdXgjtv85R+z4K+ghXY9AcFKFtSKme0I3wU7pdlyhiAPiRh+C
+KM3ubb42fk0leH977UXhCiTzmtNYK9N9F6VpegmysDl3WD1M7LnpUA8JPlnGU0Nj
+1pA1iYvP82o9SKNvOMG8Va1dCnv6ZKA0/4CJJCmpA/xjKx3JUHMY83uGOQIDAQAB
+AoGAezm6ZQ84iB8/5tRO1jf9hBbvASvF5dY7M3UyZ8GiCz/5ls0coAqBfHinRlud
+x5XJizwnBR1BQz3MxPPByq+aamxAmWEE+2Z0iFAfuumikNSZMTzzY0k9w/m+760/
+n/x5KAdwNjKycsLPhK5JYrhP/jho+LUhF1O7wAzbnZT6jyUCQQDdQte6wMwj8km+
+pkeYIsaGbPs+K48GtJeCIm1W/nA4+6N+ujrN5f02Sa407H6N4x13wh5tXHYP/rnr
+rAs5JVmLAkEAxTi63UXPH8glqrDxTz0szRW28WI0DM8Gq3H1TaXSeZLLk9uhva4n
+ZMlLd/6e8h3Fiq4uI9LiQbkoR1uEUecvywJAGqawgYgzjqjihRpWSVb2/r4lzSlG
+AxLBpSUscmwXbGWzHdKkvqRTSbS6TRmnbMPMit5Q9+9JMUgHcQG6IFoFXQJATE6n
+1mdlPWnGUSXHKB6GUA9/yiNx+ia78OfVvqZTKmDGzb2j9e0FJvTPc20b+JfWT9MW
+3RuCGWXXlMxvBPWLQwJAV1XSMxwRaRm55zVqE78xwGzCOp1PIHHAyYqXmBknn/Mv
+5DXn3l3kxcZVj4DEn2FAEmrpHRtKSf9X+GvPrt8rGQ==
+-----END RSA PRIVATE KEY-----").
+
+-define (TokenForPrivateRSAKey2WithKida, "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImEifQ.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.HoqbCf0x8cm0pbtS7PpQz21amq4w7zgApsflrvkChXUt3mvfJI_Aa46HlpAPUWOSnmeri5NRxPjEK-FSk9S1lanDnUCrXJBHQT94W6NLbtem3oNngm-BbIThEZjCi0gJxclXxO1BvtibiRxvMA-tskuxGpZBWpdMNRHgCqUlccU").
+
 decoding_using_gen_server_test_() ->
     {foreach, fun setup/0, fun cleanup/1, [
         {"load public key from openid configuration url", fun() ->
@@ -40,6 +58,31 @@ decoding_using_gen_server_test_() ->
                                                               after
                                                                  meck:validate(openid_connect_configuration),
                                                                  meck:unload(openid_connect_configuration) 
+                                                              end
+                                                            end},
+        {"reload public key from openid configuration url when token with new kid is given", fun() ->
+                                                              PublicKey = [jose_jwk:to_public(jose_jwk:from_pem(list_to_binary(?PrivateRSAKey)))],
+                                                              meck:new(openid_connect_configuration, [no_link]),
+                                                              meck:expect(openid_connect_configuration, 
+                                                                          load_jwk_set_from_config_url, [{ ["http://localhost/.well-known/openid-configuration"], PublicKey}]),
+                                                              try
+                                                                init_jwk(?OpenIdConfig),
+                                                                decode(?TokenForPrivateRSAKey)
+                                                              after
+                                                                 meck:validate(openid_connect_configuration),
+                                                                 meck:unload(openid_connect_configuration) 
+                                                              end,
+                                                                
+                                                              meck:new(openid_connect_configuration, [no_link]),
+                                                              {_, PrivateKeyMap} = jose_jwk:to_map(jose_jwk:from_pem(list_to_binary(?PrivateRSAKey2))),
+                                                              PublicKeyWithKid = [jose_jwk:to_public(jose_jwk:from_map(maps:put(<<"kid">>, <<"a">>, PrivateKeyMap)))],
+                                                              meck:expect(openid_connect_configuration, 
+                                                                          load_jwk_set_from_config_url, [{ ["http://localhost/.well-known/openid-configuration"], PublicKeyWithKid}]),
+                                                              try
+                                                                decode(?TokenForPrivateRSAKey2WithKida)
+                                                              after
+                                                                meck:validate(openid_connect_configuration),
+                                                                meck:unload(openid_connect_configuration) 
                                                               end
                                                             end},
 

@@ -76,6 +76,16 @@ handle_call({init_jwk, Config}, _From, State) ->
       _:Error -> {reply, {error, Error}, State}
    end;
 
+handle_call({reload_jwk, Config}, _From, State) ->
+   try load_jwk_set_from_url_in_config(Config) of 
+     RsJwkSet ->
+       {valid_jwk, #{hs256 := HsKeys, rs256 := RsKeys}, _} = State, 
+       NewJwkSet = #{hs256 => HsKeys, rs256 => maps:merge(RsKeys, RsJwkSet)},
+       {reply, {ok}, {valid_jwk, NewJwkSet, Config}}
+   catch
+      _:Error -> {reply, {error, Error}, State}
+   end;
+
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State}.
 
@@ -103,19 +113,21 @@ init_jwk_from_config(Config) ->
                RsPublicKey -> #{default => jose_jwk:from_pem(list_to_binary(RsPublicKey))}
              end,
 
-  RSOpenIdKeys = case couch_util:get_value("openid_authority", Config, nil) of 
-                   nil -> #{};
-                   OpenIdAuthority -> 
-                     ConfigUri = OpenIdAuthority ++ ".well-known/openid-configuration",
-                     ?LOG_INFO("Loading public key from  ~s", [ConfigUri]),
-                     KeySet = openid_connect_configuration:load_jwk_set_from_config_url(ConfigUri),
-                     maps:from_list(lists:map(fun(Key) ->  case Key of
-                       {jose_jwk, _, _, #{<<"kid">> := Kid}} -> {Kid, Key};
-                       {jose_jwk, _, _, _} -> {default, Key}
-                     end end, KeySet))
-                 end,
-  
+  RSOpenIdKeys = load_jwk_set_from_url_in_config(Config), 
   #{hs256 => HsKeys, rs256 => maps:merge(RsPEMKey, RSOpenIdKeys)}.
+
+load_jwk_set_from_url_in_config(Config) ->
+  case couch_util:get_value("openid_authority", Config, nil) of 
+    nil -> #{};
+    OpenIdAuthority -> 
+      ConfigUri = OpenIdAuthority ++ ".well-known/openid-configuration",
+      ?LOG_INFO("Loading public key from  ~s", [ConfigUri]),
+      KeySet = openid_connect_configuration:load_jwk_set_from_config_url(ConfigUri),
+      maps:from_list(lists:map(fun(Key) ->  case Key of
+                                              {jose_jwk, _, _, #{<<"kid">> := Kid}} -> {Kid, Key};
+                                              {jose_jwk, _, _, _} -> {default, Key}
+                                            end end, KeySet))
+  end.
 
 decode(Token, JWK, Alg, Config) ->
    case jose_jwt:verify_strict(JWK, [Alg], list_to_binary(Token)) of
@@ -150,7 +162,20 @@ decode(Token, Alg, Kid) ->
     {rs256, {valid_jwk, JwkSet, Config}} ->
       case maps:find(Kid, maps:get(Alg, JwkSet)) of
         {ok, Jwk} ->decode(Token, Jwk, <<"RS256">>, Config);
-        error -> throw(key_not_found) %if kid is unknown where going to reload the jwk set from openid_authority again
+        error -> %key wasn't found. we reload from openid_authority to see if it's a new key after a key rotation 
+          case gen_server:call(?MODULE, {reload_jwk, Config}) of
+            {ok} -> ok;
+            {error, ReloadError} -> throw(ReloadError)
+          end,
+          case gen_server:call(?MODULE, {get_jwk}) of
+            {valid_jwk, NewJwkSet, _} -> 
+              case maps:find(Kid, maps:get(Alg, NewJwkSet)) of
+                {ok, NewJwk} -> decode(Token, NewJwk, <<"RS256">>, Config);
+                error -> throw(key_not_find)
+              end; 
+            {invalid_jwk, Error} -> throw(Error)
+          end;
+        {invalid_jwk, Error} -> throw(Error)
       end;
     {_, {invalid_jwk, Error}} -> throw(Error)
   end.
