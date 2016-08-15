@@ -60,6 +60,29 @@ decoding_using_gen_server_test_() ->
                                                                  meck:unload(openid_connect_configuration) 
                                                               end
                                                             end},
+        {"reload public key from openid configuration url when first attempt of loading failed", fun() ->
+                                                              meck:new(openid_connect_configuration, [no_link]),
+                                                              meck:expect(openid_connect_configuration, 
+                                                                          load_jwk_set_from_config_url, fun("http://localhost/.well-known/openid-configuration") -> meck:exception(error, stupid_error) end),
+                                                              try
+                                                                init_jwk(?OpenIdConfig)
+                                                              after
+                                                                 meck:validate(openid_connect_configuration),
+                                                                 meck:unload(openid_connect_configuration) 
+                                                              end,
+                                                                
+                                                              meck:new(openid_connect_configuration, [no_link]),
+                                                              {_, PrivateKeyMap} = jose_jwk:to_map(jose_jwk:from_pem(list_to_binary(?PrivateRSAKey2))),
+                                                              PublicKeyWithKid = [jose_jwk:to_public(jose_jwk:from_map(maps:put(<<"kid">>, <<"a">>, PrivateKeyMap)))],
+                                                              meck:expect(openid_connect_configuration, 
+                                                                          load_jwk_set_from_config_url, [{ ["http://localhost/.well-known/openid-configuration"], PublicKeyWithKid}]),
+                                                              try
+                                                                decode(?TokenForPrivateRSAKey2WithKida)
+                                                              after
+                                                                meck:validate(openid_connect_configuration),
+                                                                meck:unload(openid_connect_configuration) 
+                                                              end
+                                                            end},
         {"reload public key from openid configuration url when token with new kid is given", fun() ->
                                                               PublicKey = [jose_jwk:to_public(jose_jwk:from_pem(list_to_binary(?PrivateRSAKey)))],
                                                               meck:new(openid_connect_configuration, [no_link]),

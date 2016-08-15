@@ -122,11 +122,17 @@ load_jwk_set_from_url_in_config(Config) ->
     OpenIdAuthority -> 
       ConfigUri = OpenIdAuthority ++ ".well-known/openid-configuration",
       ?LOG_INFO("Loading public key from  ~s", [ConfigUri]),
-      KeySet = openid_connect_configuration:load_jwk_set_from_config_url(ConfigUri),
-      maps:from_list(lists:map(fun(Key) ->  case Key of
-                                              {jose_jwk, _, _, #{<<"kid">> := Kid}} -> {Kid, Key};
-                                              {jose_jwk, _, _, _} -> {default, Key}
-                                            end end, KeySet))
+
+      try
+	      KeySet = openid_connect_configuration:load_jwk_set_from_config_url(ConfigUri),
+	      maps:from_list(lists:map(fun(Key) ->  case Key of
+							    {jose_jwk, _, _, #{<<"kid">> := Kid}} -> {Kid, Key};
+							    {jose_jwk, _, _, _} -> {default, Key}
+						    end end, KeySet))
+      catch 
+	      _:_-> ?LOG_INFO("Failed loading public key from ~s", [ConfigUri]),
+		    #{} %return an empty map 
+      end
   end.
 
 decode(Token, JWK, Alg, Config) ->
