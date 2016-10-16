@@ -58,6 +58,7 @@ Qx51AhEAz6VUgN0H5+1xwyOBtq/YEQIRANO6cLLvOFBNNaG9igT3ma0CEQClL7lR
 %when trying to mock openid_connect_configuration module lateron:
 %https://github.com/eproxus/meck/issues/133
 load_single_jwk_from_config_test() ->
+  jose:json_module(jsx),
   PrivateJwk = jose_jwk:from_pem(list_to_binary(?PrivateRSAKey)),
   {_, JwkJson} = jose_jwk:to_binary(PrivateJwk),
 

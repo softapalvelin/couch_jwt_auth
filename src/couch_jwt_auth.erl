@@ -99,6 +99,7 @@ terminate(_Reason, _State) ->
     ok.
 
 init_jwk_from_config(Config) ->
+  jose:json_module(jsx),
   HsKeys = case couch_util:get_value("hs_secret", Config, nil) of
              nil -> #{};
              HsSecret -> #{default => 
@@ -148,10 +149,10 @@ decode(Token, JWK, Alg, Config) ->
 decode(Token) ->
   try jose_jwt:peek_protected(list_to_binary(Token)) of
     TokenProtected -> case TokenProtected of
-                        {jose_jws, {jose_jws_alg_hmac, {jose_jws_alg_hmac, sha256}}, _, #{<<"kid">> := Kid}} -> decode(Token, hs256, Kid);
-                        {jose_jws, {jose_jws_alg_hmac, {jose_jws_alg_hmac, sha256}}, _, _} -> decode(Token, hs256, default);
-                        {jose_jws, {jose_jws_alg_rsa_pkcs1_v1_5, {jose_jws_alg_rsa_pkcs1_v1_5, sha256}}, _, #{<<"kid">> := Kid}} -> decode(Token, rs256, Kid); 
-                        {jose_jws, {jose_jws_alg_rsa_pkcs1_v1_5, {jose_jws_alg_rsa_pkcs1_v1_5, sha256}}, _, _} -> decode(Token, rs256, default);
+                        {jose_jws, {jose_jws_alg_hmac, 'HS256'}, _, #{<<"kid">> := Kid}} -> decode(Token, hs256, Kid);
+                        {jose_jws, {jose_jws_alg_hmac, 'HS256'}, _, _} -> decode(Token, hs256, default);
+                        {jose_jws, {jose_jws_alg_rsa_pkcs1_v1_5, 'RS256'}, _, #{<<"kid">> := Kid ,<<"typ">> := <<"JWT">>}} -> decode(Token, rs256, Kid); 
+                        {jose_jws, {jose_jws_alg_rsa_pkcs1_v1_5, 'RS256'}, _, _} -> decode(Token, rs256, default);
                         _ -> throw(signature_not_valid)
                       end
   catch
