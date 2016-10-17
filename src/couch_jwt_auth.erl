@@ -31,6 +31,21 @@
 
 -include_lib("couch/include/couch_db.hrl").
 
+
+-ifndef(LOG_INFO).
+%we're most certainly compiling for CouchDB 2.0
+-define(LOG_INFO(Format, Args), couch_log:info(Format, Args)).
+-define(CONFIG_GET(Section), couch_config:get(Section)).
+-else.
+-define(CONFIG_GET(Section), config:get(Section)).
+-endif.
+
+-ifndef(JSON_DECODE).
+%on CouchDB 2.0 JSON_DECODE is no longer defined
+-define(LOG_INFO(Format, Args), couch_log:info(Format, Args)).
+-define(JSON_DECODE(Json), jsx:decode(list_to_binary(Json))).
+-endif.
+
 -import(couch_httpd, [header_value/2]).
 
 %% @doc token authentication handler.
@@ -53,7 +68,7 @@ start_link(Config) ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, Config, []).
 
 start_link() ->
-   Config = couch_config:get("jwt_auth"),
+   Config = ?CONFIG_GET("jwt_auth"),
    start_link(Config).
 
 init([]) ->
@@ -236,7 +251,7 @@ validate(TokenInfo, NowSeconds, Config) ->
   end.
     
 token_auth_user(Req, User) ->
-  {UserName, Roles} = get_userinfo_from_token(User, couch_config:get("jwt_auth")),
+  {UserName, Roles} = get_userinfo_from_token(User, ?CONFIG_GET("jwt_auth")),
   Req#httpd{user_ctx=#user_ctx{name=UserName, roles=Roles}}.
 
 get_userinfo_from_token(User, Config) ->
