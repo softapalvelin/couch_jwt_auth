@@ -35,9 +35,9 @@
 -ifndef(LOG_INFO).
 %we're most certainly compiling for CouchDB 2.0
 -define(LOG_INFO(Format, Args), couch_log:info(Format, Args)).
--define(CONFIG_GET(Section), couch_config:get(Section)).
--else.
 -define(CONFIG_GET(Section), config:get(Section)).
+-else.
+-define(CONFIG_GET(Section), couch_config:get(Section)).
 -endif.
 
 -ifndef(JSON_DECODE).
