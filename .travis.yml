@@ -1,0 +1,10 @@
+language: erlang
+otp_release:
+  - 18.2.1
+sudo: false
+addons:
+  apt:
+    packages:
+    - cmake
+    - time
+script: rebar co eunit

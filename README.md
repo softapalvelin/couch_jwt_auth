@@ -1,5 +1,7 @@
 # couch_jwt_auth
 
+[![Build Status](https://travis-ci.org/dmunch/couch_jwt_auth.svg?branch=master)](https://travis-ci.org/dmunch/couch_jwt_auth)
+
 couch_jwt_auth is authentication plugin for CouchDB. It accepts JSON Web Token in the Authorization
 HTTP header and creates CouchDB user context from the token information. couch_jwt_auth doesn't use
 CouchDB authentication database. User roles are read directly from JWT and not from the
